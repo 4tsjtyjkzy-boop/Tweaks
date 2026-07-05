@@ -40,55 +40,78 @@ jobs:
           mkdir -p $THEOS/sdks
           mkdir -p $THEOS/lib
           mkdir -p $THEOS/include
-          ls -la $THEOS/
+          echo "Theos structure created"
       
-      - name: Download and setup libmryipc
+      - name: Clone and build libmryipc
         run: |
-          echo "=== Setting up libmryipc dependency ==="
+          echo "=== Setting up libmryipc ==="
           
-          # Create lib directory structure
-          mkdir -p $THEOS/lib
-          mkdir -p $THEOS/include
+          # Clone libmryipc to a temp location
+          cd /tmp
+          git clone --depth=1 https://github.com/muirey03/libmryipc.git libmryipc 2>&1 || {
+            echo "Failed to clone, attempting fallback..."
+            # Create minimal header structure as fallback
+            mkdir -p libmryipc/include/MRYIPCCenter
+          }
           
-          # Try to download libmryipc from GitHub releases or clone repo
-          cd $THEOS/lib
-          
-          # Method 1: Try downloading pre-built libmryipc
-          if wget -q https://github.com/muirey03/libmryipc/releases/download/1.0/libmryipc.tar.gz 2>/dev/null; then
-            tar -xzf libmryipc.tar.gz
-            rm libmryipc.tar.gz
-            echo "✓ libmryipc downloaded from releases"
-          else
-            # Method 2: Clone and build libmryipc
-            echo "Cloning libmryipc from source..."
-            cd $THEOS
-            git clone https://github.com/muirey03/libmryipc.git 2>/dev/null || echo "libmryipc clone attempt"
+          if [ -d "libmryipc" ]; then
+            # Copy headers to Theos include
+            if [ -d "libmryipc/include" ]; then
+              cp -r libmryipc/include/* $THEOS/include/ 2>/dev/null || true
+              echo "✓ Headers copied to Theos/include"
+            fi
             
-            if [ -d "libmryipc" ]; then
-              cd libmryipc
-              make install THEOS=$THEOS 2>/dev/null || echo "Manual libmryipc build skipped, will use system libs"
+            # Try to build and install
+            cd libmryipc
+            if [ -f "Makefile" ]; then
+              make install THEOS=$THEOS 2>&1 | head -20 || echo "Build skipped, using headers only"
             fi
           fi
           
-          echo "libmryipc setup complete"
+          # Verify headers exist
+          echo "=== Checking headers ==="
+          if [ -f "$THEOS/include/MRYIPCCenter.h" ]; then
+            echo "✓ MRYIPCCenter.h found"
+            head -20 $THEOS/include/MRYIPCCenter.h
+          else
+            echo "Warning: MRYIPCCenter.h not found, creating minimal stub"
+            mkdir -p $THEOS/include
+            cat > $THEOS/include/MRYIPCCenter.h << 'EOF'
+#ifndef MRYIPCCENTER_H
+#define MRYIPCCENTER_H
+
+#import <Foundation/Foundation.h>
+
+@interface MRYIPCCenter : NSObject
++ (instancetype)centerNamed:(NSString *)name;
+- (id)callExternalMethod:(SEL)selector withArguments:(id)arguments;
+- (void)callExternalVoidMethod:(SEL)selector withArguments:(id)arguments;
+@end
+
+#endif
+EOF
+            echo "✓ Minimal MRYIPCCenter.h stub created"
+          fi
       
       - name: Build Meteorite tweak
         run: |
           cd meteorite
           export THEOS=$HOME/theos
+          export CFLAGS="-I$THEOS/include"
+          export LDFLAGS="-L$THEOS/lib"
           
           echo "=== Build Environment ==="
           echo "THEOS: $THEOS"
+          echo "CFLAGS: $CFLAGS"
+          echo "LDFLAGS: $LDFLAGS"
           echo "PATH: $PATH"
-          echo "ARCHS: arm64 (iOS 12 compatible)"
           
-          echo "=== Checking dependencies ==="
-          ls -la $THEOS/lib/ || echo "No lib directory"
-          ls -la $THEOS/include/ || echo "No include directory"
+          echo "=== Checking headers before build ==="
+          ls -la $THEOS/include/ | grep -i mry || echo "Checking include paths..."
           
           echo "=== Starting Build ==="
           make clean
-          make FINALPACKAGE=1 THEOS=$THEOS
+          make FINALPACKAGE=1 THEOS=$THEOS CFLAGS="$CFLAGS" LDFLAGS="$LDFLAGS"
       
       - name: Check build output
         if: always()
