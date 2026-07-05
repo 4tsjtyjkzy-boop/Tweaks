@@ -14,7 +14,8 @@ on:
 
 jobs:
   build:
-    runs-on: macos-12
+    runs-on: macos-latest
+    timeout-minutes: 30
     
     steps:
       - name: Checkout code
@@ -47,13 +48,15 @@ jobs:
           # Try downloading iOS 12 SDK from multiple sources
           echo "Attempting to download iOS 12 SDK..."
           
-          # Try source 1
-          wget -q --timeout=10 https://github.com/theos/sdks/releases/download/sdks/iPhoneOS12.2.sdk.tar.gz -O ios12.tar.gz 2>/dev/null && \
-          tar -xzf ios12.tar.gz 2>/dev/null && rm ios12.tar.gz && echo "✓ iOS 12.2 SDK downloaded successfully" && exit 0
+          # Try source 1 with wget
+          if wget -q --timeout=10 https://github.com/theos/sdks/releases/download/sdks/iPhoneOS12.2.sdk.tar.gz -O ios12.tar.gz; then
+            tar -xzf ios12.tar.gz && rm ios12.tar.gz && echo "✓ iOS 12.2 SDK downloaded successfully" && exit 0
+          fi
           
           # Try source 2 - Use curl as fallback
-          curl -L --max-time 10 https://github.com/theos/sdks/releases/download/sdks/iPhoneOS12.2.sdk.tar.gz -o ios12.tar.gz 2>/dev/null && \
-          tar -xzf ios12.tar.gz 2>/dev/null && rm ios12.tar.gz && echo "✓ iOS 12.2 SDK downloaded successfully" && exit 0
+          if curl -L --max-time 10 https://github.com/theos/sdks/releases/download/sdks/iPhoneOS12.2.sdk.tar.gz -o ios12.tar.gz; then
+            tar -xzf ios12.tar.gz && rm ios12.tar.gz && echo "✓ iOS 12.2 SDK downloaded successfully" && exit 0
+          fi
           
           echo "⚠ SDK download unavailable, will attempt to use system SDK"
       
@@ -70,26 +73,22 @@ jobs:
           echo "DEPLOYMENT_TARGET: $DEPLOYMENT_TARGET"
           
           make clean
-          make FINALPACKAGE=1 || make FINALPACKAGE=1
+          make FINALPACKAGE=1
       
       - name: Check build output
         if: always()
         run: |
           cd meteorite
-          echo "=== Checking build artifacts ==="
+          echo "=== Build artifacts ==="
+          find .theos -type f -name "*.deb" 2>/dev/null || echo "Checking build structure..."
           find .theos -type f 2>/dev/null | head -20
-          ls -la .theos/obj/debug/ 2>/dev/null || echo "Debug folder structure:"
-          find .theos -name "*.deb" 2>/dev/null || echo "No .deb files found in .theos"
-          find . -name "*.deb" 2>/dev/null || echo "No .deb files found anywhere"
       
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         if: always()
         with:
           name: meteorite-build-${{ github.run_number }}
-          path: |
-            meteorite/.theos/
-            meteorite/
+          path: meteorite/.theos/
           retention-days: 30
       
       - name: Comment on PR with build status
@@ -98,11 +97,10 @@ jobs:
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
-            const fs = require('fs');
-            const buildSuccess = ${{ job.status == 'success' }};
+            const buildSuccess = '${{ job.status }}' === 'success';
             const message = buildSuccess 
-              ? '✅ Build successful! Meteorite tweak compiled without errors.' 
-              : '❌ Build failed. Check the Actions logs for details.';
+              ? '✅ Build successful! Meteorite tweak compiled.' 
+              : '❌ Build failed. Check Actions logs.';
             
             github.rest.issues.createComment({
               issue_number: context.issue.number,
