@@ -1,0 +1,70 @@
+name: Build Meteorite Tweak
+
+on:
+  push:
+    branches: [ master, main ]
+    paths:
+      - 'meteorite/**'
+      - '.github/workflows/build-meteorite.yml'
+  pull_request:
+    branches: [ master, main ]
+    paths:
+      - 'meteorite/**'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Install Theos dependencies
+        run: |
+          brew install ldid
+          brew install xz
+      
+      - name: Clone Theos
+        run: |
+          git clone --recursive https://github.com/theos/theos.git $HOME/theos
+      
+      - name: Set Theos environment
+        run: |
+          echo "THEOS=$HOME/theos" >> $GITHUB_ENV
+      
+      - name: Download iOS SDK
+        run: |
+          mkdir -p $THEOS/sdks
+          cd $THEOS/sdks
+          # Download the latest iOS SDK (this may vary based on your needs)
+          # Using a pre-compiled SDK for faster builds
+          curl -L https://github.com/theos/sdks/releases/download/sdks/iPhoneOS14.4.sdk.tar.gz -o sdk.tar.gz
+          tar -xzf sdk.tar.gz
+          rm sdk.tar.gz
+      
+      - name: Build Meteorite tweak
+        run: |
+          cd meteorite
+          make clean
+          make
+      
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: meteorite-build
+          path: meteorite/.theos/obj/debug/*.deb
+          retention-days: 30
+      
+      - name: Comment on PR with build status
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: '✅ Build successful! Meteorite tweak compiled without errors.'
+            })
