@@ -1,4 +1,4 @@
-export ARCHS = arm64 arm64e
+export ARCHS = arm64
 export GO_EASY_ON_ME = 1
 INSTALL_TARGET_PROCESSES = SpringBoard
 
